@@ -1,0 +1,49 @@
+# Git hooks that run on every commit: the same formatting and lint rules CI
+# enforces, applied before the code ever leaves the machine.
+#
+# Install once per clone:  just hooks
+# Run against everything:  just hooks-run
+#
+# mypy is deliberately absent. It needs the full dependency tree to say
+# anything useful, which would make every commit several seconds slower; it
+# runs in `just lint` and in CI instead. The hooks below all finish in well
+# under a second.
+#
+# A hook that rewrites a file fails the commit on purpose: the fix is applied
+# to the working tree but not staged, so you review it, `git add`, and commit
+# again. Nothing is ever committed that you have not seen.
+
+repos:
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.14.5
+    hooks:
+      # Lint: import order, unused names, likely bugs. --fix repairs what it
+      # safely can and reports the rest.
+      - id: ruff-check
+        args: [--fix]
+      # Format: the Black-compatible formatter, but fast.
+      - id: ruff-format
+
+  - repo: https://github.com/pre-commit/mirrors-clang-format
+    rev: v19.1.7
+    hooks:
+      # The C++ half, styled by .clang-format. The wheel ships its own
+      # clang-format, so nothing has to be installed system-wide.
+      - id: clang-format
+        types_or: [c++, c]
+
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v5.0.0
+    hooks:
+      # Hygiene that is trivial to get wrong in an editor and annoying to see
+      # in a diff.
+      - id: trailing-whitespace
+      - id: end-of-file-fixer
+      - id: mixed-line-ending
+      # Config files must at least parse before they can break a build.
+      - id: check-yaml
+      - id: check-toml
+      # A stray telemetry cache or plot committed by accident is hard to undo.
+      - id: check-added-large-files
+        args: [--maxkb=500]
+      - id: check-merge-conflict

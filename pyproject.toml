@@ -1,0 +1,76 @@
+[build-system]
+requires = ["scikit-build-core>=0.10", "pybind11>=3.0"]
+build-backend = "scikit_build_core.build"
+
+[project]
+name = "f1lab"
+version = "0.1.0"
+description = "F1 telemetry analysis lab — fastest-lap comparisons built on FastF1"
+readme = "README.md"
+requires-python = ">=3.12"
+license = "MIT"
+authors = [{ name = "Oguz Celikel", email = "oguz184celikel@gmail.com" }]
+keywords = ["formula1", "telemetry", "fastf1", "motorsport"]
+dependencies = [
+    "fastf1>=3.4",
+    "matplotlib>=3.8",
+    "numpy>=1.26",
+    "pandas>=2.1",
+]
+
+[project.optional-dependencies]
+dev = [
+    "mypy>=1.11",
+    "pre-commit>=4.0",
+    "pytest>=8.0",
+    "pytest-cov>=5.0",
+    "ruff>=0.6",
+]
+
+[project.scripts]
+f1lab = "f1lab.compare_laps:main"
+
+[tool.scikit-build]
+minimum-version = "build-system.requires"
+cmake.source-dir = "cpp"
+wheel.packages = ["src/f1lab"]
+build-dir = "build/{wheel_tag}"
+
+[tool.ruff]
+line-length = 100
+src = ["src", "tests"]
+
+[tool.ruff.lint]
+select = [
+    "E",   # pycodestyle errors
+    "W",   # pycodestyle warnings
+    "F",   # pyflakes
+    "I",   # isort (import ordering)
+    "N",   # pep8-naming
+    "UP",  # pyupgrade (modern syntax)
+    "B",   # bugbear (likely bugs)
+    "C4",  # comprehension cleanups
+    "SIM", # simplifications
+    "PTH", # prefer pathlib over os.path
+    "RUF", # ruff-specific rules
+]
+
+[tool.ruff.lint.isort]
+known-first-party = ["f1lab"]
+
+[tool.mypy]
+python_version = "3.12"
+mypy_path = "src"
+strict = true
+pretty = true
+warn_unreachable = true
+
+# FastF1 and pandas ship no type stubs; treat them as untyped rather than
+# failing the whole run on their imports.
+[[tool.mypy.overrides]]
+module = ["fastf1.*", "pandas.*"]
+ignore_missing_imports = true
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-ra --cov=f1lab --cov-report=term-missing"

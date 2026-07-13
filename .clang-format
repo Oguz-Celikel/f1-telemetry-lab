@@ -1,0 +1,11 @@
+# Matches the style the C++ sources are already written in: Google's layout
+# with a 4-space indent and the same 100-column limit ruff enforces on the
+# Python side, so both languages wrap at the same width.
+BasedOnStyle: Google
+IndentWidth: 4
+ColumnLimit: 100
+AccessModifierOffset: -4
+# Keep the grouped, hand-ordered includes as they are: standard headers, then
+# project headers, separated by a blank line.
+SortIncludes: true
+IncludeBlocks: Preserve

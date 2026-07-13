@@ -1,0 +1,16 @@
+.git
+.venv
+.fastf1-cache
+output
+docs
+dist
+build
+.cpp-build
+.clangd
+**/__pycache__
+*.py[cod]
+.pytest_cache
+.mypy_cache
+.ruff_cache
+.coverage
+.DS_Store

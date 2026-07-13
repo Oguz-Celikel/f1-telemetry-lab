@@ -1,0 +1,16 @@
+services:
+  f1lab:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile
+    image: f1-telemetry-lab:dev
+    environment:
+      FASTF1_CACHE: /app/.fastf1-cache
+      MPLBACKEND: Agg
+    volumes:
+      - ./output:/app/output
+      - ./.fastf1-cache:/app/.fastf1-cache
+      - cpp-build:/app/.cpp-build
+
+volumes:
+  cpp-build:
