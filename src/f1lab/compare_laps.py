@@ -14,7 +14,6 @@ from __future__ import annotations
 
 import argparse
 import logging
-import os
 from collections.abc import Sequence
 from dataclasses import dataclass
 from pathlib import Path
@@ -42,12 +41,12 @@ from f1lab.analysis import (
 )
 from f1lab.corners import detect_corners
 from f1lab.logs import log_uncaught_exceptions, setup_logging
+from f1lab.paths import cache_directory
 
 matplotlib.use("Agg")  # headless rendering; must be selected before pyplot is imported
 
 LOGGER = logging.getLogger(__name__)
 
-DEFAULT_CACHE_DIR = Path(".fastf1-cache")
 DEFAULT_OUTPUT_DIR = Path("output")
 
 # Colors from the validated reference palette (dataviz skill): categorical
@@ -63,8 +62,8 @@ COLOR_BASELINE = "#c3c2b7"
 
 
 def enable_cache(cache_dir: Path | None = None) -> Path:
-    """Enable FastF1's on-disk cache; honours the ``FASTF1_CACHE`` env var."""
-    resolved = cache_dir or Path(os.environ.get("FASTF1_CACHE", str(DEFAULT_CACHE_DIR)))
+    """Enable FastF1's on-disk cache; resolution lives in :mod:`f1lab.paths`."""
+    resolved = cache_dir or cache_directory()
     resolved.mkdir(parents=True, exist_ok=True)
     fastf1.Cache.enable_cache(str(resolved))
     return resolved

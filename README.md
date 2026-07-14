@@ -63,7 +63,15 @@ just dependencies  # install f1lab[dev] into .venv (also builds the C++ engine l
 
 ## The desktop app
 
-The same comparison, without the command line:
+**Download:** grab `F1-Telemetry-Lab.dmg` from the
+[latest release](https://github.com/Oguz-Celikel/f1-telemetry-lab/releases/latest),
+open it and drag the app to Applications. On first launch macOS will warn that
+the app is from an unidentified developer (it is not notarised — that requires
+a paid Apple Developer account): right-click the app, choose **Open**, and
+confirm once. Telemetry is cached under `~/Library/Application Support/F1
+Telemetry Lab/` and logs under `~/Library/Logs/F1 Telemetry Lab/`.
+
+From a checkout, the same app runs with:
 
 ```sh
 just gui        # or: f1lab-gui
@@ -108,6 +116,8 @@ three-letter codes.
 |---------|--------------|---------|
 | `just run …` | Fastest-lap comparison plot | Docker |
 | `just gui` | Launch the desktop app | host |
+| `just app` | Build `dist/F1 Telemetry Lab.app` | host |
+| `just dmg` | Package the app into a disk image | host |
 | `just examples` | Print example `just run` commands | host |
 | `just build` | Build the Docker image | Docker |
 | `just test` | Python tests (pytest) and C++ tests (Catch2) | Docker |

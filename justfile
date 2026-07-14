@@ -28,6 +28,22 @@ gui:
     @test -x {{venv_python}} || { echo "No .venv found — run 'just init' first."; exit 1; }
     {{venv_python}} -m f1lab.gui
 
+# Build the macOS app bundle: dist/F1 Telemetry Lab.app (host only)
+app:
+    @test -x {{venv_python}} || { echo "No .venv found — run 'just init' first."; exit 1; }
+    rm -rf "dist/F1 Telemetry Lab.app" dist/f1lab-app
+    {{venv_python}} -m PyInstaller packaging/f1lab.spec --noconfirm \
+        --distpath dist --workpath build/pyinstaller
+    @echo ""
+    @echo 'Built: dist/F1 Telemetry Lab.app — try it with:  open "dist/F1 Telemetry Lab.app"'
+
+# Package the app into a compressed disk image for distribution
+dmg: app
+    hdiutil create -volname "F1 Telemetry Lab" \
+        -srcfolder "dist/F1 Telemetry Lab.app" -ov -format UDZO \
+        "dist/F1-Telemetry-Lab.dmg"
+    @ls -lh dist/F1-Telemetry-Lab.dmg
+
 # Show the end of every log file (CLI runs land here from Docker too)
 logs:
     @ls logs/*.log >/dev/null 2>&1 || { echo "No log files yet — logs/ is empty."; exit 0; }

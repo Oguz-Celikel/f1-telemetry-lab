@@ -19,6 +19,7 @@ from __future__ import annotations
 import logging
 from collections.abc import Callable
 from dataclasses import dataclass
+from importlib.metadata import PackageNotFoundError, version
 from typing import Any
 
 import fastf1
@@ -37,6 +38,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from f1lab import native
 from f1lab.analysis import compute_delta_time, distance_and_time, fastest_lap_telemetry
 from f1lab.compare_laps import build_comparison_figure, enable_cache, load_session
 from f1lab.logs import log_uncaught_exceptions, setup_logging
@@ -47,6 +49,19 @@ LOGGER = logging.getLogger(__name__)
 FIRST_SEASON = 2018
 LAST_SEASON = 2026
 SESSIONS = ("R", "Q", "S", "FP1", "FP2", "FP3")
+
+
+def _app_version() -> str:
+    """The installed package's version — pyproject is the single source.
+
+    The window title shows it so "which version are you on?" has an answer a
+    user can see. Falls back gracefully when the metadata is unavailable
+    (an unusual install rather than a reason to refuse to start).
+    """
+    try:
+        return version("f1lab")
+    except PackageNotFoundError:  # pragma: no cover — depends on install method
+        return "dev"
 
 
 @dataclass(frozen=True)
@@ -128,7 +143,7 @@ class MainWindow(QMainWindow):
         # lives in C++; keeping them here pins them until they finish.
         self._workers: list[Worker] = []
 
-        self.setWindowTitle("f1lab — fastest lap comparison")
+        self.setWindowTitle(f"F1 Telemetry Lab — v{_app_version()}")
         self.year_box = QComboBox()
         self.gp_box = QComboBox()
         self.session_box = QComboBox()
@@ -324,7 +339,13 @@ def run() -> int:  # pragma: no cover — app.exec() blocks until the window clo
     # would otherwise print to a stderr nobody sees and carry on.
     log_path = setup_logging("f1lab-gui.log")
     log_uncaught_exceptions(LOGGER)
+    # The cache is configured before the first FastF1 call of any kind —
+    # otherwise the initial schedule fetch installs FastF1's own default
+    # cache and our directory only takes over from the second request on.
+    cache_dir = enable_cache()
     LOGGER.info("Log file: %s", log_path)
+    LOGGER.info("FastF1 cache: %s", cache_dir)
+    LOGGER.info("Analysis engine: %s", native.backend_name())
     app = QApplication([])
     window = MainWindow()
     window.show()

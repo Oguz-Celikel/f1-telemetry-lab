@@ -1,0 +1,66 @@
+# Release: pushing a version tag builds the macOS app and publishes the .dmg.
+#
+#   git tag v0.2.0 && git push origin v0.2.0
+#
+# The build runs on an Apple Silicon runner (macos-14 is arm64), matching the
+# machines the app targets. The package is installed non-editably on purpose:
+# an editable install serves the C++ extension through an import finder that
+# PyInstaller's analysis cannot see.
+
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write  # gh release create needs to write to the repo
+
+jobs:
+  macos-app:
+    name: macOS app (.dmg)
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      # Compiles the C++ engine for arm64 macOS along the way.
+      - name: Install
+        run: pip install ".[gui]" pyinstaller
+
+      - name: Build the app bundle
+        run: pyinstaller packaging/f1lab.spec --noconfirm --distpath dist --workpath build/pyinstaller
+
+      # A release gate, not a formality: launch the actual bundle headless and
+      # require its own log to report the C++ engine before anything ships. A
+      # bundle that silently fell back to numpy would pass every other step.
+      - name: Smoke-test the bundle
+        run: |
+          QT_QPA_PLATFORM=offscreen "dist/F1 Telemetry Lab.app/Contents/MacOS/F1 Telemetry Lab" &
+          APP_PID=$!
+          LOG="$HOME/Library/Logs/F1 Telemetry Lab/f1lab-gui.log"
+          for _ in $(seq 1 30); do
+            grep -q "Analysis engine: cpp" "$LOG" 2>/dev/null && break
+            sleep 2
+          done
+          kill $APP_PID || true
+          grep "Analysis engine: cpp" "$LOG"
+
+      - name: Package the disk image
+        run: |
+          hdiutil create -volname "F1 Telemetry Lab" \
+            -srcfolder "dist/F1 Telemetry Lab.app" -ov -format UDZO \
+            "dist/F1-Telemetry-Lab.dmg"
+
+      - name: Publish the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "$GITHUB_REF_NAME" \
+            "dist/F1-Telemetry-Lab.dmg" \
+            --title "F1 Telemetry Lab $GITHUB_REF_NAME" \
+            --generate-notes
