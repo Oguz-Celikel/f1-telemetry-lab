@@ -1,5 +1,8 @@
 # f1-telemetry-lab
 
+[![CI](https://github.com/Oguz-Celikel/f1-telemetry-lab/actions/workflows/ci.yml/badge.svg)](https://github.com/Oguz-Celikel/f1-telemetry-lab/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+
 Compare two Formula 1 drivers' fastest laps and see exactly where the time was
 won and lost. Telemetry comes from [FastF1](https://docs.fastf1.dev/); the
 analysis runs on a native C++ engine, with a numpy fallback when no compiler is
@@ -119,11 +122,28 @@ Both halves have their own README with the design decisions behind them:
 [src/f1lab/README.md](src/f1lab/README.md) for the Python package and engine
 dispatch, [cpp/README.md](cpp/README.md) for the C++ core and how it is built.
 
+## Continuous integration
+
+Every push runs four jobs on GitHub Actions, directly on the runner rather than
+in the project's Docker image — which also proves the package builds outside the
+one environment it was developed in:
+
+- **Lint** — ruff and mypy.
+- **Python 3.12 and 3.14** — installs the package (compiling the C++ engine),
+  confirms the native engine is the one selected, then runs the full suite
+  including the parity tests, with a coverage floor.
+- **numpy fallback** — deletes the compiled extension from the installed
+  package to simulate a machine with no C++ toolchain, confirms the engine
+  falls back to numpy, and runs the suite again. The README's fallback promise
+  is tested here rather than assumed.
+- **C++** — builds the core as a standalone CMake project, with no Python
+  present, and runs the Catch2 suite under ctest.
+
 ## Roadmap
 
-Done: the analysis lab and the native C++ engine. Next: CI (GitHub Actions,
-coverage), then a multi-panel view adding throttle, brake, gear and DRS traces,
-and a track map coloured by which driver is quicker in each segment.
+Done: the analysis lab, the native C++ engine, and CI. Next: a multi-panel view
+adding throttle, brake, gear and DRS traces, and a track map coloured by which
+driver is quicker in each segment.
 
 ## Notes
 

@@ -1,0 +1,148 @@
+# Continuous integration: lint, both test suites, and a check that the numpy
+# fallback still works without the compiled extension.
+#
+# Everything runs directly on the runner rather than inside the project's Docker
+# image. That is deliberate — it is faster, it makes a Python version matrix
+# cheap, and it proves the package builds and runs outside the one environment
+# it was developed in. `just test` remains the Docker-based path for local work.
+
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+# A new push to the same branch makes the previous run obsolete.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  # The official Ubuntu images ship a working g++; naming it explicitly keeps
+  # scikit-build-core from inheriting a sysconfig CXX that cannot link C++.
+  CC: gcc
+  CXX: g++
+
+jobs:
+  lint:
+    name: Lint and type-check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      # mypy needs the real dependency tree to check anything useful, so the
+      # package is installed rather than just the linters.
+      - name: Install
+        run: pip install ".[dev]"
+
+      - name: ruff check
+        run: ruff check src tests
+
+      - name: ruff format
+        run: ruff format --check src tests
+
+      - name: mypy
+        run: mypy src tests
+
+  test-python:
+    name: Python ${{ matrix.python-version }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        # The floor declared in pyproject and the version the Docker image runs.
+        python-version: ["3.12", "3.14"]
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+          cache: pip
+
+      # scikit-build-core compiles the C++ extension here; if this step passes,
+      # the native engine built cleanly on a stock runner.
+      - name: Install (builds the native extension)
+        run: pip install ".[dev]"
+
+      - name: Confirm the native engine is active
+        run: |
+          python -c "
+          from f1lab import native
+          assert native.HAS_NATIVE, 'extension did not build'
+          assert native.backend_name() == 'cpp'
+          print('engine:', native.backend_name())
+          "
+
+      # The parity tests only run when the extension exists, which is exactly
+      # the case here — so this job is what actually proves the two engines agree.
+      - name: pytest
+        run: pytest --cov-fail-under=80
+
+  test-fallback:
+    name: numpy fallback
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install
+        run: pip install ".[dev]"
+
+      # Simulate a machine with no C++ toolchain by deleting the extension from
+      # the installed package. The README promises the package still works in
+      # that case; this is where that promise is tested rather than assumed.
+      - name: Remove the compiled extension
+        run: |
+          package_dir=$(python -c "import f1lab, pathlib; print(pathlib.Path(f1lab.__file__).parent)")
+          rm -v "$package_dir"/_native*.so
+
+      - name: Confirm the fallback engaged
+        run: |
+          python -c "
+          from f1lab import native
+          assert not native.HAS_NATIVE, 'extension is still importable'
+          assert native.backend_name() == 'numpy'
+          print('engine:', native.backend_name())
+          "
+
+      # The parity tests skip themselves (no extension to compare against);
+      # everything else must pass on the numpy engine alone.
+      - name: pytest
+        run: pytest --cov-fail-under=75
+
+  test-cpp:
+    name: C++ (Catch2)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # Ninja is named explicitly rather than relying on whatever generator the
+      # runner defaults to — the same build `just test-cpp` performs locally.
+      - name: Install Ninja
+        run: sudo apt-get update && sudo apt-get install --yes --no-install-recommends ninja-build
+
+      # No Python involved: the core is a standalone CMake library, and building
+      # it on its own is what keeps that separation honest.
+      - name: Configure
+        run: cmake -S cpp -B build -G Ninja -DF1LAB_BUILD_TESTS=ON -DCMAKE_BUILD_TYPE=Release
+
+      - name: Build
+        run: cmake --build build
+
+      - name: ctest
+        run: ctest --test-dir build --output-on-failure
