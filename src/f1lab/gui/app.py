@@ -16,6 +16,7 @@ Layout of the module, top to bottom:
 
 from __future__ import annotations
 
+import logging
 from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any
@@ -38,6 +39,9 @@ from PySide6.QtWidgets import (
 
 from f1lab.analysis import compute_delta_time, distance_and_time, fastest_lap_telemetry
 from f1lab.compare_laps import build_comparison_figure, enable_cache, load_session
+from f1lab.logs import log_uncaught_exceptions, setup_logging
+
+LOGGER = logging.getLogger(__name__)
 
 # FastF1's telemetry coverage starts here; earlier seasons have no car data.
 FIRST_SEASON = 2018
@@ -103,6 +107,10 @@ class Worker(QRunnable):
         try:
             result = self._job()
         except Exception as exc:
+            # The status bar gets one readable line; the log file gets the full
+            # traceback. Without this the stack is gone — the exception dies
+            # here, on a pool thread, where no debugger ever saw it.
+            LOGGER.exception("Background job failed")
             self.signals.failed.emit(str(exc))
         else:
             self.signals.done.emit(result)
@@ -311,6 +319,12 @@ class MainWindow(QMainWindow):
 
 def run() -> int:  # pragma: no cover — app.exec() blocks until the window closes
     """Create the application and hand control to Qt's event loop."""
+    # A windowed app has no console worth reading, so the log file is where
+    # its errors live — including anything that escapes a Qt slot, which Qt
+    # would otherwise print to a stderr nobody sees and carry on.
+    log_path = setup_logging("f1lab-gui.log")
+    log_uncaught_exceptions(LOGGER)
+    LOGGER.info("Log file: %s", log_path)
     app = QApplication([])
     window = MainWindow()
     window.show()

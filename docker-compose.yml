@@ -7,9 +7,13 @@ services:
     environment:
       FASTF1_CACHE: /app/.fastf1-cache
       MPLBACKEND: Agg
+      # Log files land on the host: `docker compose run --rm` deletes the
+      # container on exit, and its stdout goes with it.
+      F1LAB_LOG_DIR: /app/logs
     volumes:
       - ./output:/app/output
       - ./.fastf1-cache:/app/.fastf1-cache
+      - ./logs:/app/logs
       - cpp-build:/app/.cpp-build
 
 volumes:
