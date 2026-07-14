@@ -41,6 +41,7 @@ from f1lab.analysis import (
     has_signal,
 )
 from f1lab.corners import detect_corners
+from f1lab.logs import log_uncaught_exceptions, setup_logging
 
 matplotlib.use("Agg")  # headless rendering; must be selected before pyplot is imported
 
@@ -371,11 +372,13 @@ def build_parser() -> argparse.ArgumentParser:
 
 def main(argv: Sequence[str] | None = None) -> int:
     """CLI entry point; returns a process exit code."""
-    logging.basicConfig(level=logging.INFO, format="%(levelname)-8s %(name)s: %(message)s")
+    log_path = setup_logging("f1lab.log")
+    log_uncaught_exceptions(LOGGER)
     args = build_parser().parse_args(argv)
     driver_1, driver_2 = (code.upper() for code in args.drivers)
 
     cache_dir = enable_cache()
+    LOGGER.info("Log file: %s", log_path)
     LOGGER.info("FastF1 cache: %s", cache_dir)
     LOGGER.info("Analysis engine: %s", native.backend_name())
 

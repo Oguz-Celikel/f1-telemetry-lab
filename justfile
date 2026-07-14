@@ -14,7 +14,7 @@ default:
 init:
     python3 -m venv .venv
     {{venv_python}} -m pip install --upgrade pip
-    mkdir -p output .fastf1-cache
+    mkdir -p output .fastf1-cache logs
     @echo "Done. Next: just dependencies"
 
 # Install f1lab plus dev tools into the local virtualenv (editable)
@@ -27,6 +27,11 @@ dependencies:
 gui:
     @test -x {{venv_python}} || { echo "No .venv found — run 'just init' first."; exit 1; }
     {{venv_python}} -m f1lab.gui
+
+# Show the end of every log file (CLI runs land here from Docker too)
+logs:
+    @ls logs/*.log >/dev/null 2>&1 || { echo "No log files yet — logs/ is empty."; exit 0; }
+    tail -n 40 logs/*.log
 
 # Install the git hooks (ruff, clang-format, hygiene checks) — run once per clone
 hooks:
@@ -128,5 +133,5 @@ package:
 clean:
     rm -rf dist build .cpp-build .pytest_cache .mypy_cache .ruff_cache .coverage src/*.egg-info
     find . -name "__pycache__" -type d -prune -exec rm -rf {} +
-    rm -f output/*.png
+    rm -f output/*.png logs/*.log*
     -{{compose}} down --remove-orphans

@@ -158,13 +158,15 @@ def test_gui_entry_point_reports_missing_qt(monkeypatch: pytest.MonkeyPatch) -> 
     assert gui.main() == 1
 
 
-def test_loader_failure_lands_in_the_status_bar(qtbot: Any) -> None:
-    """A failing fetch reports itself and re-enables the controls.
+def test_loader_failure_lands_in_the_status_bar(qtbot: Any, caplog: Any) -> None:
+    """A failing fetch reports itself, logs its traceback, and re-enables the UI.
 
     The schedule loader raising is what a dead network looks like to the
-    window. The failure must surface where the user can read it — and the
-    window must come back to life, or the app is soft-locked after one bad
-    request.
+    window. The failure must surface twice: one readable line in the status
+    bar for the user, and the full traceback in the log for whoever debugs it
+    later — the exception dies on a pool thread where no debugger ever saw it.
+    And the window must come back to life, or the app is soft-locked after one
+    bad request.
     """
 
     def broken_schedule(year: int) -> list[str]:
@@ -175,10 +177,16 @@ def test_loader_failure_lands_in_the_status_bar(qtbot: Any) -> None:
         session=FAKE_LOADERS.session,
         roster=FAKE_LOADERS.roster,
     )
-    win = MainWindow(loaders=loaders)
-    qtbot.addWidget(win)
+    with caplog.at_level("ERROR", logger="f1lab.gui.app"):
+        win = MainWindow(loaders=loaders)
+        qtbot.addWidget(win)
+        qtbot.waitUntil(lambda: "no route" in win.statusBar().currentMessage(), timeout=2000)
 
-    qtbot.waitUntil(lambda: "no route" in win.statusBar().currentMessage(), timeout=2000)
+    # The log record carries the exception itself, not just a message.
+    failure = next(r for r in caplog.records if "Background job failed" in r.message)
+    assert failure.exc_info is not None
+    assert "no route" in str(failure.exc_info[1])
+
     # Recovered: the user can change the year and try again.
     assert win.year_box.isEnabled()
     assert win.load_button.isEnabled()
