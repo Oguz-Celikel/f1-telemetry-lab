@@ -19,16 +19,21 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
+# The desktop app is an optional extra: the analysis engine and CLI must stay
+# installable on a headless server that has no use for Qt's ~200 MB of wheels.
+gui = ["PySide6>=6.8"]
 dev = [
     "mypy>=1.11",
     "pre-commit>=4.0",
     "pytest>=8.0",
     "pytest-cov>=5.0",
+    "pytest-qt>=4.4",
     "ruff>=0.6",
 ]
 
 [project.scripts]
 f1lab = "f1lab.compare_laps:main"
+f1lab-gui = "f1lab.gui:main"
 
 [tool.scikit-build]
 minimum-version = "build-system.requires"
@@ -68,8 +73,16 @@ warn_unreachable = true
 # FastF1 and pandas ship no type stubs; treat them as untyped rather than
 # failing the whole run on their imports.
 [[tool.mypy.overrides]]
-module = ["fastf1.*", "pandas.*"]
+module = ["fastf1.*", "pandas.*", "matplotlib.backends.*"]
 ignore_missing_imports = true
+
+# The Qt canvas and toolbar come from matplotlib's untyped backend module, so
+# every call into them trips strict mode's untyped-call rule. Relaxing that one
+# rule for the one module that talks to the backend beats sprinkling ignores on
+# every canvas call; everything else in the module stays fully checked.
+[[tool.mypy.overrides]]
+module = ["f1lab.gui.app"]
+disallow_untyped_calls = false
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
@@ -79,7 +92,7 @@ addopts = "-ra --cov=f1lab --cov-report=term-missing"
 # The module only exists so `python -m f1lab` works. It is exercised by every
 # real run and holds no logic worth a test, but pytest never imports it — so
 # counting it would just depress the number without telling us anything.
-omit = ["*/f1lab/__main__.py"]
+omit = ["*/f1lab/__main__.py", "*/f1lab/gui/__main__.py"]
 
 [tool.coverage.report]
 exclude_lines = [

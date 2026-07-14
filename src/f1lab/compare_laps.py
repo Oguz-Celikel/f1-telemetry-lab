@@ -24,6 +24,7 @@ import fastf1
 import matplotlib
 import numpy as np
 import pandas as pd
+from matplotlib.figure import Figure
 from matplotlib.lines import Line2D
 from matplotlib.ticker import MaxNLocator
 from numpy.typing import NDArray
@@ -177,14 +178,13 @@ def select_panels(telemetry_1: pd.DataFrame, telemetry_2: pd.DataFrame) -> list[
     return panels
 
 
-def plot_comparison(
+def build_comparison_figure(
     lap_1: FastestLap,
     lap_2: FastestLap,
     delta_s: NDArray[np.float64],
     title: str,
-    out_path: Path,
-) -> None:
-    """Render the delta and every available telemetry channel, and save a PNG.
+) -> Figure:
+    """Build the comparison figure: the delta above every available channel.
 
     All panels share one distance axis, so a feature in the speed trace lines up
     vertically with the throttle, brake and gear that produced it. Each channel
@@ -193,20 +193,22 @@ def plot_comparison(
     Channels that carry no signal are dropped: 2026 cars report DRS as a
     constant zero (the regulations replaced it with active aerodynamics), and a
     flat panel would only take space away from the ones that say something.
-    """
-    import matplotlib.pyplot as plt  # deferred so matplotlib.use("Agg") above always wins
 
+    Built on a bare ``Figure`` rather than through pyplot: pyplot keeps global
+    state and assumes it owns the backend, which breaks the moment the same
+    figure has to live inside a Qt window. The CLI saves this figure to a PNG;
+    the GUI hands it to a canvas — same function, no global anything.
+    """
     dist_1, _ = distance_and_time(lap_1.telemetry)
     dist_2, _ = distance_and_time(lap_2.telemetry)
     panels = select_panels(lap_1.telemetry, lap_2.telemetry)
 
-    fig, axes_grid = plt.subplots(
+    fig = Figure(figsize=(11.5, 2.6 + 1.35 * len(panels)), layout="constrained")
+    axes_grid = fig.subplots(
         len(panels) + 1,
         1,
-        figsize=(11.5, 2.6 + 1.35 * len(panels)),
         sharex=True,
         gridspec_kw={"height_ratios": [DELTA_HEIGHT, *(p.height for p, _, _ in panels)]},
-        layout="constrained",
         # Without this, a figure with a single row returns a bare Axes rather
         # than an array, and the loop below would have to special-case it.
         squeeze=False,
@@ -248,10 +250,20 @@ def plot_comparison(
 
     axes[-1].set_xlabel("Lap distance (m)", color=COLOR_INK_SECONDARY)
     fig.suptitle(title, color=COLOR_INK, fontsize=13, fontweight="bold")
+    return fig
 
+
+def plot_comparison(
+    lap_1: FastestLap,
+    lap_2: FastestLap,
+    delta_s: NDArray[np.float64],
+    title: str,
+    out_path: Path,
+) -> None:
+    """Build the comparison figure and save it as a PNG — the CLI's output path."""
+    fig = build_comparison_figure(lap_1, lap_2, delta_s, title)
     out_path.parent.mkdir(parents=True, exist_ok=True)
     fig.savefig(out_path, dpi=150)
-    plt.close(fig)
 
 
 def _annotate_speed(

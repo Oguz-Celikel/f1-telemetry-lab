@@ -20,7 +20,13 @@ init:
 # Install f1lab plus dev tools into the local virtualenv (editable)
 dependencies:
     @test -x {{venv_python}} || { echo "No .venv found — run 'just init' first."; exit 1; }
-    {{venv_python}} -m pip install --editable ".[dev]"
+    {{venv_python}} -m pip install --editable ".[dev,gui]"
+
+# Launch the desktop app. Runs on the host, not in Docker — a container has
+# no display to open a window on.
+gui:
+    @test -x {{venv_python}} || { echo "No .venv found — run 'just init' first."; exit 1; }
+    {{venv_python}} -m f1lab.gui
 
 # Install the git hooks (ruff, clang-format, hygiene checks) — run once per clone
 hooks:
