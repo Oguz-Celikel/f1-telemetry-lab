@@ -16,15 +16,20 @@ One command:
 just run 2026 Silverstone Q VER NOR
 ```
 
-writes a PNG to `output/` — both drivers' speed traces with the detected corner
-apexes marked, and the time delta along the lap underneath:
+writes a PNG to `output/` — the time delta on top, then every telemetry channel
+the cars recorded (speed with corner apexes marked, throttle, brake, gear and
+RPM), all sharing one distance axis:
 
 ![VER vs NOR, Silverstone 2026 qualifying](docs/example_silverstone_q_ver_nor.png)
 
 Reading this one: Norris took pole by 0.016 s. The delta panel shows Verstappen
 gaining under braking into Village (around 1000 m) and Vale (5400 m), while
 Norris pulls it back through the fast Maggotts–Becketts sweeps — by 4000 m he is
-0.45 s up. The entire gap is made in the high-speed corners.
+0.45 s up. Because every channel lines up vertically, the throttle and brake
+panels show *why*: same corner, the two drivers lift and brake at slightly
+different points. (There is no DRS panel here — 2026 cars replaced it with
+active aerodynamics, so the channel is flat and the panel is dropped; on a 2024
+session it appears.)
 
 ## Requirements
 

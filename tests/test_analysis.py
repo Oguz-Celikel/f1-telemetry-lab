@@ -23,10 +23,12 @@ import pytest
 
 from f1lab.analysis import (
     build_output_path,
+    channel,
     compute_delta_time,
     distance_and_time,
     fastest_lap_telemetry,
     format_lap_time,
+    has_signal,
     pairwise_delta_matrix,
     resample_times,
     slugify,
@@ -297,3 +299,47 @@ def test_build_output_path() -> None:
     # output directory with near-duplicates.
     path = build_output_path(Path("output"), 2026, "British Grand Prix", "R", "VER", "NOR")
     assert path == Path("output/2026_british_grand_prix_r_ver_vs_nor.png")
+
+
+class TestChannels:
+    """Reading a telemetry channel, including the two that need interpreting."""
+
+    def test_numeric_channel_comes_back_as_float(self) -> None:
+        telemetry = pd.DataFrame({"Speed": [280, 300, 250]})
+        values = channel(telemetry, "Speed")
+        assert values.dtype == np.float64
+        assert np.allclose(values, [280.0, 300.0, 250.0])
+
+    def test_brake_bool_becomes_zero_and_one(self) -> None:
+        # FastF1 reports Brake as a bool; the plot needs a number.
+        telemetry = pd.DataFrame({"Brake": [False, True, True, False]})
+        assert np.allclose(channel(telemetry, "Brake"), [0.0, 1.0, 1.0, 0.0])
+
+    def test_drs_code_becomes_open_or_closed(self) -> None:
+        # DRS is a status code, not a quantity: 10, 12 and 14 mean the flap is
+        # open; 0, 1 and 8 mean it is not (8 is "eligible, not yet activated").
+        # Plotting the raw number would imply 14 is more DRS than 10.
+        telemetry = pd.DataFrame({"DRS": [0, 1, 8, 10, 12, 14]})
+        assert np.allclose(channel(telemetry, "DRS"), [0.0, 0.0, 0.0, 1.0, 1.0, 1.0])
+
+    def test_unknown_channel_raises(self) -> None:
+        with pytest.raises(KeyError, match="Nonsense"):
+            channel(pd.DataFrame({"Speed": [1.0]}), "Nonsense")
+
+
+class TestHasSignal:
+    def test_a_varying_channel_has_signal(self) -> None:
+        assert has_signal(np.array([0.0, 1.0, 0.0]))
+
+    def test_a_flat_channel_has_none(self) -> None:
+        # 2026 cars report DRS as a constant zero — the regulations replaced it
+        # with active aerodynamics — so the panel is dropped rather than drawn
+        # as an empty strip.
+        assert not has_signal(np.zeros(10))
+
+    def test_one_varying_series_is_enough(self) -> None:
+        # Only one driver used DRS: the channel still says something.
+        assert has_signal(np.zeros(5), np.array([0.0, 1.0, 1.0, 0.0, 0.0]))
+
+    def test_empty_input_has_no_signal(self) -> None:
+        assert not has_signal(np.array([], dtype=np.float64))
