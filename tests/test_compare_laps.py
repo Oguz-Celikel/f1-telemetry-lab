@@ -19,7 +19,13 @@ import pytest
 
 from f1lab import compare_laps
 from f1lab.analysis import FastestLap
-from f1lab.compare_laps import build_parser, enable_cache, main, plot_comparison
+from f1lab.compare_laps import (
+    build_parser,
+    enable_cache,
+    main,
+    plot_comparison,
+    select_panels,
+)
 
 
 def test_parser_parses_all_arguments() -> None:
@@ -50,11 +56,24 @@ def test_parser_requires_exactly_two_drivers() -> None:
         build_parser().parse_args(["--year", "2026", "--gp", "Monza", "--drivers", "LEC"])
 
 
-def _fastest_lap(driver: str, base_speed_ms: float, *, corners: bool = False) -> FastestLap:
+def _fastest_lap(
+    driver: str,
+    base_speed_ms: float,
+    *,
+    corners: bool = False,
+    channels: bool = False,
+    drs: bool = False,
+) -> FastestLap:
     """A synthetic lap in the shape the plotting code expects.
 
-    ``corners=True`` gives the speed trace real dips, so the apex markers have
-    something to mark — a flat trace silently skips that branch of the plot.
+    The flags switch on the things the figure only draws when the data supports
+    them, so each can be tested for rather than hoped for:
+
+    ``corners`` gives the speed trace real dips, so the apex markers have
+    something to mark. ``channels`` adds throttle, brake, gear and RPM, so the
+    lower panels appear. ``drs`` adds a DRS column that actually opens — without
+    it the channel is flat and the panel is dropped, which is what happens with
+    real 2026 data.
     """
     distance = np.linspace(0.0, 5000.0, 200, dtype=np.float64)
     speed_kmh = np.full(distance.shape, base_speed_ms * 3.6)
@@ -67,14 +86,23 @@ def _fastest_lap(driver: str, base_speed_ms: float, *, corners: bool = False) ->
     # physically consistent even when it has corners.
     steps = np.diff(distance, prepend=0.0)
     time_s = np.cumsum(steps / speed_ms)
-    telemetry = pd.DataFrame(
-        {
-            "Distance": distance,
-            "Time": pd.to_timedelta(time_s, unit="s"),
-            "Speed": speed_kmh,
-        }
-    )
-    return FastestLap(driver=driver, lap_time_s=float(time_s[-1]), telemetry=telemetry)
+    frame: dict[str, object] = {
+        "Distance": distance,
+        "Time": pd.to_timedelta(time_s, unit="s"),
+        "Speed": speed_kmh,
+    }
+    if channels:
+        slow = speed_kmh < speed_kmh.mean()
+        frame["Throttle"] = np.where(slow, 0.0, 100.0)
+        frame["Brake"] = slow  # bool, as FastF1 reports it
+        frame["nGear"] = np.clip((speed_kmh / 45.0).astype(np.int64), 1, 8)
+        frame["RPM"] = 6000.0 + 40.0 * speed_kmh
+        # A DRS column that never opens: 8 means "eligible, not activated".
+        frame["DRS"] = np.full(distance.shape, 8, dtype=np.int64)
+    if drs:
+        # Codes >= 10 mean the flap is open; open it on the second half.
+        frame["DRS"] = np.where(distance > 2500.0, 12, 8).astype(np.int64)
+    return FastestLap(driver=driver, lap_time_s=float(time_s[-1]), telemetry=pd.DataFrame(frame))
 
 
 def test_plot_comparison_writes_png(tmp_path: Path) -> None:
@@ -198,3 +226,66 @@ def test_enable_cache_honours_the_env_var(monkeypatch: pytest.MonkeyPatch, tmp_p
     resolved = enable_cache()
     assert resolved == cache_dir
     assert cache_dir.is_dir()
+
+
+class TestPanelSelection:
+    """Which channels get a panel — the decision, tested apart from the drawing.
+
+    Pulling the choice out of plot_comparison is what makes it testable at all:
+    reading panels back off a rendered figure would mean re-deriving the rule in
+    the test, which tests a copy of the logic rather than the logic.
+    """
+
+    def test_all_recorded_channels_get_a_panel(self) -> None:
+        lap_1 = _fastest_lap("VER", 55.0, corners=True, channels=True, drs=True)
+        lap_2 = _fastest_lap("NOR", 52.0, corners=True, channels=True, drs=True)
+        columns = [panel.column for panel, _, _ in select_panels(lap_1.telemetry, lap_2.telemetry)]
+        assert columns == ["Speed", "Throttle", "Brake", "nGear", "RPM", "DRS"]
+
+    def test_a_flat_channel_is_dropped(self) -> None:
+        # The real case this guards: 2026 cars report DRS as a constant — the
+        # regulations replaced it with active aerodynamics — so the panel would
+        # otherwise be an empty strip stealing height from the rest.
+        lap_1 = _fastest_lap("VER", 55.0, corners=True, channels=True)
+        lap_2 = _fastest_lap("NOR", 52.0, corners=True, channels=True)
+        columns = [panel.column for panel, _, _ in select_panels(lap_1.telemetry, lap_2.telemetry)]
+        assert "DRS" not in columns
+        assert "Speed" in columns  # everything else survives
+
+    def test_missing_channels_are_skipped(self) -> None:
+        # Older or partial telemetry may simply not carry a column.
+        lap_1 = _fastest_lap("VER", 55.0, corners=True)
+        lap_2 = _fastest_lap("NOR", 52.0, corners=True)
+        columns = [panel.column for panel, _, _ in select_panels(lap_1.telemetry, lap_2.telemetry)]
+        assert columns == ["Speed"]
+
+    def test_speed_survives_even_when_flat(self) -> None:
+        # Speed is the figure's anchor: the apexes, the legend and the driver
+        # labels all live on it, so the has-signal rule must not remove it.
+        lap_1 = _fastest_lap("VER", 55.0)  # constant speed
+        lap_2 = _fastest_lap("NOR", 52.0)
+        columns = [panel.column for panel, _, _ in select_panels(lap_1.telemetry, lap_2.telemetry)]
+        assert columns == ["Speed"]
+
+    def test_one_driver_using_drs_is_enough(self) -> None:
+        # If either lap varies in a channel, the comparison is worth drawing.
+        lap_1 = _fastest_lap("VER", 55.0, corners=True, channels=True, drs=True)
+        lap_2 = _fastest_lap("NOR", 52.0, corners=True, channels=True)  # flat DRS
+        columns = [panel.column for panel, _, _ in select_panels(lap_1.telemetry, lap_2.telemetry)]
+        assert "DRS" in columns
+
+
+def test_plot_renders_every_panel(tmp_path: Path) -> None:
+    """The full figure — all six channels plus the delta — renders and saves.
+
+    Each channel keeps its own y-scale in its own panel: speed, throttle and RPM
+    share nothing but the distance they were measured at, and putting two units
+    on one axis is the standard way to invent a correlation that is not there.
+    """
+    lap_1 = _fastest_lap("VER", 55.0, corners=True, channels=True, drs=True)
+    lap_2 = _fastest_lap("NOR", 52.0, corners=True, channels=True, drs=True)
+    delta = np.linspace(0.0, 1.5, 200, dtype=np.float64)
+    out_path = tmp_path / "all_panels.png"
+    plot_comparison(lap_1, lap_2, delta, "Test GP 2026 — Race", out_path)
+    assert out_path.exists()
+    assert out_path.stat().st_size > 0

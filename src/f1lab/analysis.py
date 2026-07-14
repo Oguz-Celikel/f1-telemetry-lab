@@ -59,6 +59,36 @@ def distance_and_time(telemetry: pd.DataFrame) -> tuple[NDArray[np.float64], NDA
     return distance, time_s
 
 
+def channel(telemetry: pd.DataFrame, name: str) -> NDArray[np.float64]:
+    """Return one telemetry channel as a float64 array, ready to plot.
+
+    Two channels need interpreting rather than casting:
+
+    ``Brake`` is a boolean in FastF1 and becomes 0.0 / 1.0.
+
+    ``DRS`` is a *status code*, not a quantity: 10, 12 and 14 mean the flap is
+    open, while 0, 1 and 8 mean it is not (8 is "eligible, not yet activated").
+    Plotting the raw code would imply 14 is somehow more DRS than 10, so it is
+    reduced to the single bit that carries information.
+    """
+    if name not in telemetry.columns:
+        raise KeyError(f"telemetry has no channel {name!r}")
+    values = telemetry[name]
+    if name == "DRS":
+        return np.asarray(values >= 10, dtype=np.float64)
+    return np.asarray(values, dtype=np.float64)
+
+
+def has_signal(*series: NDArray[np.float64]) -> bool:
+    """Whether any of these arrays varies at all.
+
+    A channel that never changes carries no information and is better left out
+    than drawn as a flat line — 2026 cars, for instance, report DRS as a
+    constant zero, the regulations having replaced it with active aerodynamics.
+    """
+    return any(values.size > 0 and float(np.ptp(values)) > 0.0 for values in series)
+
+
 def compute_delta_time(
     ref_distance_m: NDArray[np.float64],
     ref_time_s: NDArray[np.float64],
