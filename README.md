@@ -8,87 +8,63 @@ won and lost. Telemetry comes from [FastF1](https://docs.fastf1.dev/); the
 analysis runs on a native C++ engine, with a numpy fallback when no compiler is
 available.
 
-## What you get
+## The app
 
-One command:
+![The F1 Telemetry Lab desktop app](docs/gui.png)
 
-```sh
-just run 2026 Silverstone Q VER NOR
-```
+Pick a season, a Grand Prix, a session and two drivers — the app downloads the
+telemetry and embeds the comparison in the window, with pan and zoom. Every
+list is real: choosing a season fills the calendar, loading a session fills
+the driver lists with the people who actually raced in it, so 2020 offers the
+2020 grid. Downloads run off the UI thread; the window never freezes.
 
-writes a PNG to `output/` — the time delta on top, then every telemetry channel
-the cars recorded (speed with corner apexes marked, throttle, brake, gear and
-RPM), all sharing one distance axis:
+The figure reads top to bottom: the time delta first (the answer), then every
+channel the cars recorded — speed with detected corner apexes marked,
+throttle, brake, gear, RPM — sharing one distance axis, so a swing in the
+delta lines up vertically with the inputs that caused it. In the session
+above, Norris took pole by 0.016 s: Verstappen gains under braking into
+Village and Vale, Norris pulls it back through the fast Maggotts–Becketts
+sweeps. Channels that carry no signal are dropped — 2026 cars have no DRS
+(active aerodynamics replaced it), so that panel only appears for older
+seasons.
 
-![VER vs NOR, Silverstone 2026 qualifying](docs/example_silverstone_q_ver_nor.png)
+### Install
 
-Reading this one: Norris took pole by 0.016 s. The delta panel shows Verstappen
-gaining under braking into Village (around 1000 m) and Vale (5400 m), while
-Norris pulls it back through the fast Maggotts–Becketts sweeps — by 4000 m he is
-0.45 s up. Because every channel lines up vertically, the throttle and brake
-panels show *why*: same corner, the two drivers lift and brake at slightly
-different points. (There is no DRS panel here — 2026 cars replaced it with
-active aerodynamics, so the channel is flat and the panel is dropped; on a 2024
-session it appears.)
+Grab `F1-Telemetry-Lab.dmg` from the
+[latest release](https://github.com/Oguz-Celikel/f1-telemetry-lab/releases/latest),
+open it and drag **F1 Telemetry Lab** to Applications. On first launch macOS
+warns that the app is from an unidentified developer (it is not notarised —
+that requires a paid Apple Developer account): right-click the app, choose
+**Open**, and confirm once.
 
-## Requirements
+Good to know:
 
-- [Docker Desktop](https://www.docker.com/products/docker-desktop/) — every
-  heavy task runs in a container, so nothing but Docker has to be installed for
-  the analysis itself.
-- [`just`](https://github.com/casey/just) — the task runner (`brew install just`).
-- Python 3.12+ — only for the optional local virtualenv that your editor uses.
+- The first load of any session downloads tens of megabytes of telemetry; it
+  is cached under `~/Library/Application Support/F1 Telemetry Lab/` and is
+  fast from then on.
+- Logs live in `~/Library/Logs/F1 Telemetry Lab/` — the place to look if
+  something misbehaves.
+- The window title shows the version you are running.
 
-## Getting started
+## Running from a checkout
+
+Prerequisites: [Docker Desktop](https://www.docker.com/products/docker-desktop/)
+for the analysis tasks, [`just`](https://github.com/casey/just) as the task
+runner, Python 3.12+ for the app and the local virtualenv.
 
 ```sh
 git clone https://github.com/Oguz-Celikel/f1-telemetry-lab.git
 cd f1-telemetry-lab
 
-just build                            # build the Docker image (compiles the C++ engine)
-just run 2026 Silverstone Q VER NOR   # produce the comparison plot
+just init && just dependencies   # local virtualenv (also compiles the C++ engine)
+just gui                         # the desktop app, from source
+
+just build                            # Docker image for the CLI and the tests
+just run 2026 Silverstone Q VER NOR   # the same comparison as a PNG in output/
 ```
 
-The path of the generated PNG is printed at the end of the run. The first run of
-any session is slow — FastF1 downloads tens of megabytes of telemetry — but the
-data is cached in `.fastf1-cache/` and reused from then on.
-
-To work on the code rather than just run it, add a local virtualenv so your
-editor gets autocompletion and type checking:
-
-```sh
-just init          # create .venv, output/ and .fastf1-cache/
-just dependencies  # install f1lab[dev] into .venv (also builds the C++ engine locally)
-```
-
-## The desktop app
-
-**Download:** grab `F1-Telemetry-Lab.dmg` from the
-[latest release](https://github.com/Oguz-Celikel/f1-telemetry-lab/releases/latest),
-open it and drag the app to Applications. On first launch macOS will warn that
-the app is from an unidentified developer (it is not notarised — that requires
-a paid Apple Developer account): right-click the app, choose **Open**, and
-confirm once. Telemetry is cached under `~/Library/Application Support/F1
-Telemetry Lab/` and logs under `~/Library/Logs/F1 Telemetry Lab/`.
-
-From a checkout, the same app runs with:
-
-```sh
-just gui        # or: f1lab-gui
-```
-
-![The f1lab desktop app](docs/gui.png)
-
-Pick a season and the calendar fills in; load a session and the driver lists
-fill with the people who actually raced in it — choose 2020 and you get the
-2020 grid. Comparing embeds the figure in the window with pan and zoom, and
-every download runs off the UI thread, so the window never freezes while
-FastF1 fetches a session.
-
-The app is an optional extra (`pip install "f1lab[gui]"`) — the engine and the
-CLI stay installable on a headless machine that has no use for Qt. It runs on
-the host rather than in Docker, since a container has no display to open a
-window on.
+The desktop app is an optional extra (`pip install "f1lab[gui]"`) — the engine
+and the CLI stay installable on a headless machine that has no use for Qt.
 
 ## Running other comparisons
 
