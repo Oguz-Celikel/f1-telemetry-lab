@@ -161,10 +161,19 @@ Done: the analysis lab, the native C++ engine, and CI. Next: a multi-panel view
 adding throttle, brake, gear and DRS traces, and a track map coloured by which
 driver is quicker in each segment.
 
-## Notes
+## Data and acknowledgements
 
-Unofficial project, not associated with Formula 1. Telemetry is fetched through
-FastF1's public sources.
+All telemetry is loaded through [FastF1](https://github.com/theOehrly/Fast-F1),
+which reads the official F1 live-timing service for car data and the
+[jolpica-f1](https://github.com/jolpica/jolpica-f1) API — the community-run
+successor to Ergast — for schedule and results metadata. This project only
+analyses and plots what those provide; it collects no data of its own. Thanks to
+the maintainers of both.
+
+FastF1 and this project are unofficial and are not associated in any way with
+the Formula 1 companies. F1, FORMULA ONE, FORMULA 1, FIA FORMULA ONE WORLD
+CHAMPIONSHIP, GRAND PRIX and related marks are trade marks of Formula One
+Licensing B.V.
 
 ## License
 
