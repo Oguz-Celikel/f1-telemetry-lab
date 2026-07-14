@@ -87,7 +87,18 @@ jobs:
       # The parity tests only run when the extension exists, which is exactly
       # the case here — so this job is what actually proves the two engines agree.
       - name: pytest
-        run: pytest --cov-fail-under=80
+        run: pytest --cov-fail-under=95
+
+      # Put the per-file numbers on the run's summary page, so a drop in
+      # coverage is visible without digging through the log.
+      - name: Coverage summary
+        if: always()
+        run: |
+          {
+            echo "### Coverage — Python ${{ matrix.python-version }}"
+            echo
+            coverage report --format=markdown
+          } >> "$GITHUB_STEP_SUMMARY"
 
   test-fallback:
     name: numpy fallback
@@ -123,7 +134,7 @@ jobs:
       # The parity tests skip themselves (no extension to compare against);
       # everything else must pass on the numpy engine alone.
       - name: pytest
-        run: pytest --cov-fail-under=75
+        run: pytest --cov-fail-under=90
 
   test-cpp:
     name: C++ (Catch2)

@@ -139,6 +139,17 @@ one environment it was developed in:
 - **C++** — builds the core as a standalone CMake project, with no Python
   present, and runs the Catch2 suite under ctest.
 
+Coverage is 99% with the native engine and 93% on the fallback path, enforced
+as a floor in both jobs and reported per file on the run's summary page.
+`just coverage` produces the same report locally as a clickable HTML page under
+`output/coverage/`.
+
+What the remaining lines are, and why they stay uncovered: `load_session` is a
+three-line wrapper around a FastF1 network call, and mocking it would test the
+mock; the `RuntimeError` raised when `engine="cpp"` is requested without the
+extension cannot be reached in a job where the extension exists — the fallback
+job covers it.
+
 ## Roadmap
 
 Done: the analysis lab, the native C++ engine, and CI. Next: a multi-panel view

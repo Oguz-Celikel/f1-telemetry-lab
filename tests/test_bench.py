@@ -11,7 +11,7 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-from f1lab import bench
+from f1lab import bench, native
 
 
 def test_synthetic_laps_are_consistent() -> None:
@@ -55,3 +55,82 @@ def test_best_ms_measures_something_positive() -> None:
     elapsed_ms = bench.best_ms(noop, number=3, repeats=2)
     assert elapsed_ms >= 0.0
     assert calls == 6
+
+
+def test_workloads_run_on_both_engines() -> None:
+    """Each workload's `run` callable works with either engine name.
+
+    build_workloads returns closures, and a typo inside one of them would only
+    surface when `just bench` is next run — which is exactly the kind of rot
+    this file exists to prevent.
+    """
+    laps = bench.synthetic_laps(n_drivers=3, samples=120, seed=3)
+    grid = np.linspace(0.0, bench.LAP_LENGTH_M, 50, dtype=np.float64)
+    workloads = bench.build_workloads(laps, grid)
+    assert len(workloads) == 3
+    for workload in workloads:
+        assert workload.name
+        assert workload.number > 0
+        result = workload.run("numpy")
+        assert result is not None
+
+
+def test_check_parity_accepts_agreeing_engines() -> None:
+    # The guard must not fire on a workload whose engines agree — otherwise the
+    # benchmark could never run at all.
+    laps = bench.synthetic_laps(n_drivers=2, samples=120, seed=4)
+    grid = np.linspace(0.0, bench.LAP_LENGTH_M, 50, dtype=np.float64)
+    workload = bench.build_workloads(laps, grid)[0]
+    if native.HAS_NATIVE:
+        bench.check_parity(workload)  # must not raise
+
+
+def test_check_parity_rejects_disagreeing_engines() -> None:
+    """A workload whose engines disagree must abort the benchmark.
+
+    This is the safety catch that keeps the README's table honest: timing two
+    functions that compute different things would be meaningless, so the run
+    fails instead of reporting a speedup.
+    """
+    disagreeing = bench.Workload(
+        name="rigged",
+        # Returns a different array depending on the engine asked for.
+        run=lambda engine: np.zeros(4) if engine == "numpy" else np.ones(4),
+        number=1,
+    )
+    with pytest.raises(RuntimeError, match="engine mismatch"):
+        bench.check_parity(disagreeing)
+
+
+def test_main_prints_a_markdown_table(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """main() renders the table. Shrunk to keep the test fast.
+
+    The real workload sizes are tuned for a meaningful measurement, not for a
+    test suite, so the module constants are patched down to something tiny —
+    the code path is identical, only the numbers are smaller.
+    """
+    if not native.HAS_NATIVE:
+        pytest.skip("benchmark needs both engines")
+    monkeypatch.setattr(bench, "N_DRIVERS", 2)
+    monkeypatch.setattr(bench, "SAMPLES_PER_LAP", 100)
+    monkeypatch.setattr(bench, "GRID_POINTS", 40)
+    monkeypatch.setattr(bench, "REPEATS", 1)
+
+    assert bench.main() == 0
+
+    out = capsys.readouterr().out
+    assert "| Workload | numpy | C++ | speedup |" in out
+    assert out.count("ms |") == 6  # two timings on each of the three rows
+
+
+def test_main_without_the_extension_reports_and_exits(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    # Nothing to compare against: say so and exit non-zero rather than pretend.
+    # Patch the native module itself rather than reaching through bench: it is
+    # the same object either way, and bench re-exporting it is not part of its API.
+    monkeypatch.setattr(native, "HAS_NATIVE", False)
+    assert bench.main() == 1
+    assert "not available" in capsys.readouterr().out

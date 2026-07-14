@@ -62,6 +62,13 @@ build: _require-docker
 # Run all tests: Python (pytest + parity) and C++ (Catch2), inside Docker
 test: test-py test-cpp
 
+# Line-by-line coverage report you can click through (output/coverage/)
+coverage: build
+    {{compose}} run --rm f1lab pytest --cov-report=html:output/coverage
+    @echo ""
+    @echo "Report: output/coverage/index.html"
+    @-open output/coverage/index.html 2>/dev/null || true
+
 # Run the Python unit tests (with coverage) inside Docker
 test-py: build
     {{compose}} run --rm f1lab pytest

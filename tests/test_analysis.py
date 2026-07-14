@@ -142,8 +142,12 @@ class TestComputeDeltaTime:
     def test_mismatched_shapes_raise(self) -> None:
         # `match` pins the message, not just the type: the C++ engine raises the
         # same text, and test_native_parity.py relies on that.
-        with pytest.raises(ValueError, match="same shape"):
+        with pytest.raises(ValueError, match="reference distance and time"):
             compute_delta_time(np.zeros(5), np.zeros(4), np.zeros(5), np.zeros(5))
+        # Both laps are validated, and the message says which one is at fault —
+        # so the second pair gets its own case rather than being assumed.
+        with pytest.raises(ValueError, match="other distance and time"):
+            compute_delta_time(np.zeros(5), np.zeros(5), np.zeros(5), np.zeros(4))
 
     def test_empty_arrays_raise(self) -> None:
         empty = np.array([], dtype=np.float64)
@@ -202,6 +206,14 @@ class TestResampleAndPairwise:
         grid = np.linspace(0.0, 10.0, 5, dtype=np.float64)
         with pytest.raises(ValueError, match="same shape"):
             resample_times([grid], [grid[:-1]], grid, engine="numpy")
+
+    def test_empty_lap_raises(self) -> None:
+        # An empty lap among otherwise valid ones: caught per-lap, not just by
+        # the length check on the list.
+        grid = np.linspace(0.0, 10.0, 5, dtype=np.float64)
+        empty = np.array([], dtype=np.float64)
+        with pytest.raises(ValueError, match="must not be empty"):
+            resample_times([grid, empty], [grid, empty], grid, engine="numpy")
 
 
 class TestFastestLapTelemetry:

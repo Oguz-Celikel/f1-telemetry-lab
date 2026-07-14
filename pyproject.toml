@@ -74,3 +74,17 @@ ignore_missing_imports = true
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 addopts = "-ra --cov=f1lab --cov-report=term-missing"
+
+[tool.coverage.run]
+# The module only exists so `python -m f1lab` works. It is exercised by every
+# real run and holds no logic worth a test, but pytest never imports it — so
+# counting it would just depress the number without telling us anything.
+omit = ["*/f1lab/__main__.py"]
+
+[tool.coverage.report]
+exclude_lines = [
+    "pragma: no cover",
+    # Import-time fallbacks and __main__ guards: which branch runs depends on
+    # how the package was installed, not on whether the code is tested.
+    "if __name__ == .__main__.:",
+]
