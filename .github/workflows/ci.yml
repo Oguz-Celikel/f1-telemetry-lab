@@ -27,6 +27,8 @@ env:
   # scikit-build-core from inheriting a sysconfig CXX that cannot link C++.
   CC: gcc
   CXX: g++
+  # No display on a CI runner: Qt renders to memory and the GUI tests still run.
+  QT_QPA_PLATFORM: offscreen
 
 jobs:
   lint:
@@ -40,10 +42,10 @@ jobs:
           python-version: "3.12"
           cache: pip
 
-      # mypy needs the real dependency tree to check anything useful, so the
-      # package is installed rather than just the linters.
+      # mypy needs the real dependency tree to check anything useful — the gui
+      # extra included, since f1lab.gui.app imports PySide6 at module level.
       - name: Install
-        run: pip install ".[dev]"
+        run: pip install ".[dev,gui]"
 
       - name: ruff check
         run: ruff check src tests
@@ -70,10 +72,15 @@ jobs:
           python-version: ${{ matrix.python-version }}
           cache: pip
 
+      # PySide6's wheels dlopen a handful of system libraries even on the
+      # offscreen platform; the runner image does not guarantee all of them.
+      - name: Install Qt runtime libraries
+        run: sudo apt-get update && sudo apt-get install --yes --no-install-recommends libegl1 libgl1 libxkbcommon0 libdbus-1-3 libfontconfig1 libglib2.0-0
+
       # scikit-build-core compiles the C++ extension here; if this step passes,
       # the native engine built cleanly on a stock runner.
       - name: Install (builds the native extension)
-        run: pip install ".[dev]"
+        run: pip install ".[dev,gui]"
 
       - name: Confirm the native engine is active
         run: |
@@ -111,8 +118,13 @@ jobs:
           python-version: "3.12"
           cache: pip
 
+      # PySide6's wheels dlopen a handful of system libraries even on the
+      # offscreen platform; the runner image does not guarantee all of them.
+      - name: Install Qt runtime libraries
+        run: sudo apt-get update && sudo apt-get install --yes --no-install-recommends libegl1 libgl1 libxkbcommon0 libdbus-1-3 libfontconfig1 libglib2.0-0
+
       - name: Install
-        run: pip install ".[dev]"
+        run: pip install ".[dev,gui]"
 
       # Simulate a machine with no C++ toolchain by deleting the extension from
       # the installed package. The README promises the package still works in

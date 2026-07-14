@@ -61,6 +61,27 @@ just init          # create .venv, output/ and .fastf1-cache/
 just dependencies  # install f1lab[dev] into .venv (also builds the C++ engine locally)
 ```
 
+## The desktop app
+
+The same comparison, without the command line:
+
+```sh
+just gui        # or: f1lab-gui
+```
+
+![The f1lab desktop app](docs/gui.png)
+
+Pick a season and the calendar fills in; load a session and the driver lists
+fill with the people who actually raced in it — choose 2020 and you get the
+2020 grid. Comparing embeds the figure in the window with pan and zoom, and
+every download runs off the UI thread, so the window never freezes while
+FastF1 fetches a session.
+
+The app is an optional extra (`pip install "f1lab[gui]"`) — the engine and the
+CLI stay installable on a headless machine that has no use for Qt. It runs on
+the host rather than in Docker, since a container has no display to open a
+window on.
+
 ## Running other comparisons
 
 Any season, Grand Prix, session and driver pairing that FastF1 covers works:
@@ -86,6 +107,7 @@ three-letter codes.
 | Command | What it does | Runs in |
 |---------|--------------|---------|
 | `just run …` | Fastest-lap comparison plot | Docker |
+| `just gui` | Launch the desktop app | host |
 | `just examples` | Print example `just run` commands | host |
 | `just build` | Build the Docker image | Docker |
 | `just test` | Python tests (pytest) and C++ tests (Catch2) | Docker |
@@ -157,9 +179,10 @@ job covers it.
 
 ## Roadmap
 
-Done: the analysis lab, the native C++ engine, and CI. Next: a multi-panel view
-adding throttle, brake, gear and DRS traces, and a track map coloured by which
-driver is quicker in each segment.
+Done: the analysis lab, the native C++ engine, CI, the multi-panel telemetry
+view, and the desktop app. Next: championship standings in the app (via the
+jolpica API), and a track map coloured by which driver is quicker in each
+segment.
 
 ## Data and acknowledgements
 
