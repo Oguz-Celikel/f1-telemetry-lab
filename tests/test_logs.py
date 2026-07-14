@@ -15,7 +15,8 @@ from pathlib import Path
 
 import pytest
 
-from f1lab.logs import log_directory, log_uncaught_exceptions, setup_logging
+from f1lab.logs import log_uncaught_exceptions, setup_logging
+from f1lab.paths import log_directory
 
 
 @pytest.fixture(autouse=True)

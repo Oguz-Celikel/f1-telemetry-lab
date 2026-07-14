@@ -46,4 +46,8 @@ repos:
       # A stray telemetry cache or plot committed by accident is hard to undo.
       - id: check-added-large-files
         args: [--maxkb=500]
+        # The app icon is a legitimate megabyte-scale binary (artwork, its
+        # processed square, and the multi-resolution .icns built from it).
+        # Everything else stays under the limit.
+        exclude: ^packaging/icon
       - id: check-merge-conflict

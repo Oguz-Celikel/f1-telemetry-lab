@@ -16,19 +16,14 @@ under the chatter of the other.
 from __future__ import annotations
 
 import logging
-import os
 import sys
 from logging.handlers import RotatingFileHandler
 from pathlib import Path
 from types import TracebackType
 
-DEFAULT_LOG_DIR = Path("logs")
+from f1lab.paths import log_directory
+
 _FORMAT = "%(asctime)s %(levelname)-8s %(name)s: %(message)s"
-
-
-def log_directory() -> Path:
-    """Where log files go; ``F1LAB_LOG_DIR`` overrides the default ``logs/``."""
-    return Path(os.environ.get("F1LAB_LOG_DIR", str(DEFAULT_LOG_DIR)))
 
 
 def setup_logging(filename: str) -> Path:
