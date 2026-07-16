@@ -13,10 +13,14 @@ available.
 ![The F1 Telemetry Lab desktop app](docs/gui.png)
 
 Pick a season, a Grand Prix, a session and two drivers — the app downloads the
-telemetry and embeds the comparison in the window, with pan and zoom. Every
-list is real: choosing a season fills the calendar, loading a session fills
-the driver lists with the people who actually raced in it, so 2020 offers the
-2020 grid. Downloads run off the UI thread; the window never freezes.
+telemetry and embeds the comparison in the window. Every list is real:
+choosing a season fills the calendar, loading a session fills the driver lists
+with the people who actually raced in it, so 2020 offers the 2020 grid.
+Downloads run off the UI thread; the window never freezes.
+
+The controls on the right shape the figure live: choose which channels to
+show, recolour either driver, switch to a dark background (its own validated
+palette, not an inversion), and save the result as a PNG.
 
 The figure reads top to bottom: the time delta first (the answer), then every
 channel the cars recorded — speed with detected corner apexes marked,

@@ -289,3 +289,72 @@ def test_plot_renders_every_panel(tmp_path: Path) -> None:
     plot_comparison(lap_1, lap_2, delta, "Test GP 2026 — Race", out_path)
     assert out_path.exists()
     assert out_path.stat().st_size > 0
+
+
+def test_plot_options_filter_the_panels(tmp_path: Path) -> None:
+    """Deselected panels do not appear — and identity survives losing speed.
+
+    With only throttle chosen the axes are delta + throttle, and the legend —
+    which normally lives on the speed panel — moves to the top, so the driver
+    colours stay identified whatever the selection.
+    """
+    from f1lab.compare_laps import PlotOptions, build_comparison_figure
+
+    lap_1 = _fastest_lap("VER", 55.0, corners=True, channels=True)
+    lap_2 = _fastest_lap("NOR", 52.0, corners=True, channels=True)
+    delta = np.linspace(0.0, 1.5, 200, dtype=np.float64)
+
+    everything = build_comparison_figure(lap_1, lap_2, delta, "t")
+    only_throttle = build_comparison_figure(
+        lap_1, lap_2, delta, "t", PlotOptions(channels=frozenset({"Throttle"}))
+    )
+    assert len(everything.axes) > 3
+    assert len(only_throttle.axes) == 2  # delta + throttle
+    assert only_throttle.axes[0].get_legend() is not None
+
+    no_delta = build_comparison_figure(
+        lap_1, lap_2, delta, "t", PlotOptions(channels=frozenset({"Speed"}), show_delta=False)
+    )
+    assert len(no_delta.axes) == 1  # speed alone
+
+    # Nothing selected at all: the delta returns rather than an empty figure.
+    nothing = build_comparison_figure(
+        lap_1, lap_2, delta, "t", PlotOptions(channels=frozenset(), show_delta=False)
+    )
+    assert len(nothing.axes) == 1
+    assert nothing.axes[0].get_legend() is not None
+
+
+def test_dark_theme_styles_the_whole_figure() -> None:
+    """DARK is a validated palette of its own, not the light theme inverted."""
+    from matplotlib.colors import to_rgba
+
+    from f1lab.compare_laps import DARK, PlotOptions, build_comparison_figure
+
+    lap_1 = _fastest_lap("VER", 55.0)
+    lap_2 = _fastest_lap("NOR", 52.0)
+    delta = np.linspace(0.0, 1.5, 200, dtype=np.float64)
+    figure = build_comparison_figure(lap_1, lap_2, delta, "t", PlotOptions(theme=DARK))
+
+    assert figure.get_facecolor() == to_rgba(DARK.surface)
+    assert figure.axes[0].get_facecolor() == to_rgba(DARK.surface)
+    # The traces wear the dark theme's validated driver colours.
+    assert figure.axes[0].lines[0].get_color() == DARK.driver_1  # speed is the top row
+
+
+def test_custom_driver_colours_override_the_theme() -> None:
+    from f1lab.compare_laps import PlotOptions, build_comparison_figure
+
+    lap_1 = _fastest_lap("VER", 55.0)
+    lap_2 = _fastest_lap("NOR", 52.0)
+    delta = np.linspace(0.0, 1.5, 200, dtype=np.float64)
+    figure = build_comparison_figure(
+        lap_1,
+        lap_2,
+        delta,
+        "t",
+        PlotOptions(driver_1_color="#123456", driver_2_color="#654321"),
+    )
+    speed_ax = figure.axes[0]  # speed is the top row
+    assert speed_ax.lines[0].get_color() == "#123456"
+    assert speed_ax.lines[1].get_color() == "#654321"
