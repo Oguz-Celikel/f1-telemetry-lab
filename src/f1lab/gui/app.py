@@ -19,28 +19,40 @@ from __future__ import annotations
 import logging
 from collections.abc import Callable
 from dataclasses import dataclass
-from importlib.metadata import PackageNotFoundError, version
 from typing import Any
 
 import fastf1
-from matplotlib.backends.backend_qt import NavigationToolbar2QT
 from matplotlib.backends.backend_qtagg import FigureCanvasQTAgg
 from matplotlib.figure import Figure
-from PySide6.QtCore import QObject, QRunnable, QThreadPool, Signal, Slot
+from PySide6.QtCore import QObject, QRunnable, Qt, QThreadPool, Signal, Slot
+from PySide6.QtGui import QColor, QNativeGestureEvent
 from PySide6.QtWidgets import (
     QApplication,
+    QCheckBox,
+    QColorDialog,
     QComboBox,
+    QFileDialog,
+    QGroupBox,
     QHBoxLayout,
     QLabel,
     QMainWindow,
     QPushButton,
+    QScrollBar,
     QVBoxLayout,
     QWidget,
 )
 
 from f1lab import native
 from f1lab.analysis import compute_delta_time, distance_and_time, fastest_lap_telemetry
-from f1lab.compare_laps import build_comparison_figure, enable_cache, load_session
+from f1lab.compare_laps import (
+    DARK,
+    LIGHT,
+    PANELS,
+    PlotOptions,
+    build_comparison_figure,
+    enable_cache,
+    load_session,
+)
 from f1lab.logs import log_uncaught_exceptions, setup_logging
 
 LOGGER = logging.getLogger(__name__)
@@ -49,19 +61,6 @@ LOGGER = logging.getLogger(__name__)
 FIRST_SEASON = 2018
 LAST_SEASON = 2026
 SESSIONS = ("R", "Q", "S", "FP1", "FP2", "FP3")
-
-
-def _app_version() -> str:
-    """The installed package's version — pyproject is the single source.
-
-    The window title shows it so "which version are you on?" has an answer a
-    user can see. Falls back gracefully when the metadata is unavailable
-    (an unusual install rather than a reason to refuse to start).
-    """
-    try:
-        return version("f1lab")
-    except PackageNotFoundError:  # pragma: no cover — depends on install method
-        return "dev"
 
 
 @dataclass(frozen=True)
@@ -131,6 +130,145 @@ class Worker(QRunnable):
             self.signals.done.emit(result)
 
 
+class ZoomableCanvas(FigureCanvasQTAgg):
+    """A figure canvas with the viewing gestures this app actually needs.
+
+    Cmd+scroll (or a trackpad pinch) zooms the shared distance axis around
+    the cursor, and a double-click restores the full lap. This replaces
+    matplotlib's modal zoom tool, which is easy to enter and hard to leave —
+    and because every panel shares the x axis, one zoom moves them all.
+    Zooming never escapes the lap: the limits clamp to the full-lap view.
+    """
+
+    ZOOM_STEP = 1.2
+
+    # Fires whenever the visible x window changes (zoom, pan, reset), so the
+    # window can keep the pan bar under the plot in step with the gestures.
+    view_changed = Signal()
+
+    def __init__(self, figure: Figure) -> None:
+        super().__init__(figure)
+        # The full-lap limits, captured before any gesture touches them —
+        # this is what a double-click comes home to.
+        self._home_xlim: tuple[float, float] | None = (
+            figure.axes[0].get_xlim() if figure.axes else None
+        )
+        self.mpl_connect("button_press_event", self._on_press)
+
+    # -- the view, for whoever needs to mirror or restore it ----------------
+
+    def view(self) -> tuple[float, float, float, float] | None:
+        """(home_low, home_high, low, high), or None for an empty figure."""
+        if not self.figure.axes or self._home_xlim is None:
+            return None
+        low, high = self.figure.axes[0].get_xlim()
+        return (*self._home_xlim, low, high)
+
+    def is_zoomed(self) -> bool:
+        view = self.view()
+        if view is None:
+            return False
+        home_low, home_high, low, high = view
+        return (high - low) < (home_high - home_low) * 0.999
+
+    def set_view(self, low: float, high: float) -> None:
+        """Show exactly this x window (clamped to the lap) — used to carry the
+        zoom across a rebuild, so changing a panel does not lose your place."""
+        if not self.figure.axes or self._home_xlim is None:
+            return
+        home_low, home_high = self._home_xlim
+        span = min(high - low, home_high - home_low)
+        low = max(home_low, min(low, home_high - span))
+        self.figure.axes[0].set_xlim(low, low + span)
+        self.draw_idle()
+        self.view_changed.emit()
+
+    def _on_press(self, event: Any) -> None:
+        if event.dblclick:
+            self._reset_view()
+
+    def wheelEvent(self, event: Any) -> None:  # noqa: N802 — Qt's name
+        """Scrolling, straight from Qt rather than through matplotlib.
+
+        matplotlib's scroll event names the held modifier differently across
+        platforms and versions ("ctrl", "cmd", "control"…), which is how a
+        Cmd+scroll can silently match nothing. Qt's own modifier flags are
+        unambiguous, so the gesture is decided here: modifier+scroll zooms,
+        a horizontal scroll pans a zoomed view, anything else stays Qt's.
+        """
+        # Qt maps the Mac's Cmd to ControlModifier by default; accepting Meta
+        # too covers both keys on every platform.
+        zoom_modifiers = Qt.KeyboardModifier.ControlModifier | Qt.KeyboardModifier.MetaModifier
+        if event.modifiers() & zoom_modifiers:
+            delta = event.angleDelta().y() or event.pixelDelta().y()
+            if delta:
+                factor = 1 / self.ZOOM_STEP if delta > 0 else self.ZOOM_STEP
+                self._zoom(factor, self._xdata_at(event.position()))
+            event.accept()
+            return
+        # Two-finger sideways scroll pans a zoomed view — the natural trackpad
+        # follow-up to a pinch. Vertical scrolls pass through untouched.
+        pan_px = event.pixelDelta().x() or event.angleDelta().x() // 8
+        if self.is_zoomed() and pan_px:
+            self._pan_pixels(-pan_px)
+            event.accept()
+            return
+        super().wheelEvent(event)
+
+    def event(self, e: Any) -> bool:
+        # macOS trackpad pinches arrive as native gestures, not scroll events;
+        # matplotlib never sees them, so the Qt widget handles them itself.
+        if (
+            isinstance(e, QNativeGestureEvent)
+            and e.gestureType() == Qt.NativeGestureType.ZoomNativeGesture
+        ):
+            # Pinch deltas are small (±~0.1); apart means in, together means out.
+            if 1.0 + e.value() > 0.1:
+                self._zoom(1.0 / (1.0 + e.value()), self._xdata_at(e.position()))
+            return True
+        return bool(super().event(e))
+
+    def _xdata_at(self, position: Any) -> float | None:
+        """The distance under the cursor, or None when it is off the axes."""
+        if not self.figure.axes:
+            return None
+        x, y = self.mouseEventCoords(position)
+        return float(self.figure.axes[0].transData.inverted().transform((x, y))[0])
+
+    def _pan_pixels(self, pixels: float) -> None:
+        """Slide the visible window sideways by a screen distance."""
+        view = self.view()
+        if view is None:
+            return
+        _, _, low, high = view
+        width = self.figure.axes[0].get_window_extent().width or 1.0
+        shift = pixels / width * (high - low)
+        self.set_view(low + shift, high + shift)
+
+    def _zoom(self, factor: float, center: float | None) -> None:
+        """Scale the x window by ``factor`` around ``center``, clamped to the lap."""
+        if not self.figure.axes or self._home_xlim is None:
+            return
+        ax = self.figure.axes[0]  # sharex: one set_xlim moves every panel
+        low, high = ax.get_xlim()
+        if center is None:
+            center = (low + high) / 2  # cursor outside the axes: zoom the middle
+        home_low, home_high = self._home_xlim
+        new_low = max(center - (center - low) * factor, home_low)
+        new_high = min(center + (high - center) * factor, home_high)
+        if new_high - new_low < (home_high - home_low) * 1e-3:
+            return  # deep enough — going further would just show noise
+        ax.set_xlim(new_low, new_high)
+        self.draw_idle()
+        self.view_changed.emit()
+
+    def _reset_view(self) -> None:
+        if self.figure.axes and self._home_xlim is not None:
+            self.figure.axes[0].set_xlim(self._home_xlim)
+            self.draw_idle()
+            self.view_changed.emit()
+
+
 class MainWindow(QMainWindow):
     """Year → Grand Prix → session → two drivers → compare."""
 
@@ -139,11 +277,16 @@ class MainWindow(QMainWindow):
         self._loaders = loaders
         self._pool = QThreadPool.globalInstance()
         self._session: Any = None
+        # The last comparison's data, kept so the plot controls can rebuild
+        # the figure instantly — no download, no recomputation.
+        self._last_comparison: tuple[Any, Any, Any, str] | None = None
+        # None means "the theme's validated default" for that driver.
+        self._driver_colors: list[str | None] = [None, None]
         # Python would garbage-collect a running worker whose only reference
         # lives in C++; keeping them here pins them until they finish.
         self._workers: list[Worker] = []
 
-        self.setWindowTitle(f"F1 Telemetry Lab — v{_app_version()}")
+        self.setWindowTitle("F1 Telemetry Lab")
         self.year_box = QComboBox()
         self.gp_box = QComboBox()
         self.session_box = QComboBox()
@@ -175,18 +318,34 @@ class MainWindow(QMainWindow):
             drivers.addWidget(widget, 1)
         drivers.addWidget(self.compare_button)
 
-        self._canvas = FigureCanvasQTAgg(Figure())
-        self._toolbar = NavigationToolbar2QT(self._canvas, self)
+        self._canvas = ZoomableCanvas(Figure())
+
+        # The canvas and its controls side by side: the plot takes the space,
+        # the controls keep a fixed strip on the right.
+        # Under the plot: a pan bar that comes alive when zoomed in. It mirrors
+        # the visible window (the handle is the viewport) and dragging it slides
+        # the view — the mouse-first counterpart to sideways trackpad scrolling.
+        self.pan_bar = QScrollBar(Qt.Orientation.Horizontal)
+        self.pan_bar.setEnabled(False)
+        self.pan_bar.valueChanged.connect(self._pan_bar_moved)
+        self._canvas.view_changed.connect(self._sync_pan_bar)
+
+        plot_column = QVBoxLayout()
+        plot_column.addWidget(self._canvas, 1)
+        plot_column.addWidget(self.pan_bar)
+
+        content = QHBoxLayout()
+        content.addLayout(plot_column, 1)
+        content.addWidget(self._build_controls())
 
         column = QVBoxLayout()
         column.addLayout(selectors)
         column.addLayout(drivers)
-        column.addWidget(self._toolbar)
-        column.addWidget(self._canvas, 1)
+        column.addLayout(content, 1)
         container = QWidget()
         container.setLayout(column)
         self.setCentralWidget(container)
-        self.resize(1150, 800)
+        self.resize(1280, 800)
 
         self.year_box.currentIndexChanged.connect(self._refresh_schedule)
         self.load_button.clicked.connect(self._load_session)
@@ -194,6 +353,61 @@ class MainWindow(QMainWindow):
 
         self._set_downstream_enabled(False)
         self._refresh_schedule()
+
+    def _build_controls(self) -> QWidget:
+        """The strip that replaced matplotlib's navigation toolbar.
+
+        That toolbar answers questions nobody asks of this app — pan history,
+        subplot margins, axis editors — and its modal zoom is easy to get
+        stuck in. These controls answer the questions people actually have:
+        which channels, whose colours, which background, save it. Every
+        change rebuilds the figure from the kept comparison data, which is
+        fast enough that a "reset view" concept never needs to exist.
+        """
+        channels_group = QGroupBox("Panels")
+        channels_layout = QVBoxLayout(channels_group)
+        # The checkboxes mirror the figure's row order: speed on top, the
+        # delta directly under it, then the input channels. Delta is not a
+        # telemetry channel — it is computed from both laps — so it gets its
+        # own checkbox rather than a slot in the channel dict.
+        self.delta_box = QCheckBox("Delta")
+        self.delta_box.setChecked(True)
+        self.delta_box.toggled.connect(self._redraw)
+
+        self.channel_boxes: dict[str, QCheckBox] = {}
+        for panel in PANELS:
+            box = QCheckBox(panel.column)
+            box.setChecked(True)
+            box.toggled.connect(self._redraw)
+            channels_layout.addWidget(box)
+            self.channel_boxes[panel.column] = box
+            if panel.column == "Speed":
+                channels_layout.addWidget(self.delta_box)
+
+        appearance_group = QGroupBox("Appearance")
+        appearance_layout = QVBoxLayout(appearance_group)
+        self.color_buttons: list[QPushButton] = []
+        for index in (0, 1):
+            button = QPushButton(f"Driver {index + 1} colour…")
+            button.clicked.connect(lambda _=False, i=index: self._pick_color(i))
+            appearance_layout.addWidget(button)
+            self.color_buttons.append(button)
+        self.dark_box = QCheckBox("Dark background")
+        self.dark_box.toggled.connect(self._redraw)
+        appearance_layout.addWidget(self.dark_box)
+
+        self.save_button = QPushButton("Save as PNG…")
+        self.save_button.clicked.connect(self._save_figure)
+        self.save_button.setEnabled(False)  # nothing to save until a comparison ran
+
+        controls = QWidget()
+        controls.setFixedWidth(190)
+        layout = QVBoxLayout(controls)
+        layout.addWidget(channels_group)
+        layout.addWidget(appearance_group)
+        layout.addStretch(1)
+        layout.addWidget(self.save_button)
+        return controls
 
     # --- async plumbing -----------------------------------------------------
 
@@ -298,33 +512,123 @@ class MainWindow(QMainWindow):
         self._spawn(job, self._comparison_ready, f"Comparing {driver_1} and {driver_2}…")
 
     def _comparison_ready(self, result: Any) -> None:
-        lap_1, lap_2, delta_s, title = result
+        self._last_comparison = result
+        self.save_button.setEnabled(True)
+        self._redraw()
+        self._set_busy(False)
+        lap_1, lap_2, _, _ = result
+        self.statusBar().showMessage(
+            f"{lap_1.driver} vs {lap_2.driver} — Cmd+scroll or pinch zooms, "
+            "the bar below pans, double-click resets."
+        )
+
+    # --- plot controls -------------------------------------------------------
+
+    def _plot_options(self) -> PlotOptions:
+        """The controls, read into one value the figure builder understands."""
+        return PlotOptions(
+            channels=frozenset(
+                column for column, box in self.channel_boxes.items() if box.isChecked()
+            ),
+            show_delta=self.delta_box.isChecked(),
+            theme=DARK if self.dark_box.isChecked() else LIGHT,
+            driver_1_color=self._driver_colors[0],
+            driver_2_color=self._driver_colors[1],
+        )
+
+    def _redraw(self) -> None:
+        """Rebuild the figure from the kept data with the current options.
+
+        Cheap by design: the telemetry and the delta are already computed, so
+        this is pure drawing — which is what makes live controls viable
+        without threading. A zoomed view survives the rebuild: losing your
+        place because you toggled a channel would make the controls and the
+        zoom fight each other.
+        """
+        if self._last_comparison is None:
+            return  # nothing compared yet; the options apply from the first plot
+        zoomed_view = self._canvas.view() if self._canvas.is_zoomed() else None
+        lap_1, lap_2, delta_s, title = self._last_comparison
         # The figure is built on the GUI thread: matplotlib objects are not
         # thread-safe once a canvas owns them. The slow part (the data) is
         # already done by the time we get here.
-        figure = build_comparison_figure(lap_1, lap_2, delta_s, title)
+        figure = build_comparison_figure(lap_1, lap_2, delta_s, title, self._plot_options())
         self._show_figure(figure)
-        self._set_busy(False)
-        self.statusBar().showMessage(
-            f"{lap_1.driver} vs {lap_2.driver} — pan and zoom with the toolbar."
-        )
+        if zoomed_view is not None:
+            self._canvas.set_view(zoomed_view[2], zoomed_view[3])
+        self._sync_pan_bar()
+
+    # --- panning -------------------------------------------------------------
+
+    PAN_BAR_RESOLUTION = 10_000  # scrollbar units per full lap; plenty smooth
+
+    def _sync_pan_bar(self) -> None:
+        """Mirror the canvas's visible window onto the bar under the plot.
+
+        The handle *is* the viewport: its size is the visible fraction of the
+        lap, its position the view's start. Signals are blocked while writing
+        so the mirror never feeds back into the view it mirrors.
+        """
+        bar = self.pan_bar
+        view = self._canvas.view()
+        bar.blockSignals(True)
+        if view is None or not self._canvas.is_zoomed():
+            bar.setRange(0, 0)
+            bar.setEnabled(False)
+        else:
+            home_low, home_high, low, high = view
+            home_span = home_high - home_low
+            page = max(1, round((high - low) / home_span * self.PAN_BAR_RESOLUTION))
+            bar.setRange(0, self.PAN_BAR_RESOLUTION - page)
+            bar.setPageStep(page)
+            bar.setValue(round((low - home_low) / home_span * self.PAN_BAR_RESOLUTION))
+            bar.setEnabled(True)
+        bar.blockSignals(False)
+
+    def _pan_bar_moved(self, value: int) -> None:
+        view = self._canvas.view()
+        if view is None:
+            return
+        home_low, home_high, low, high = view
+        home_span = home_high - home_low
+        new_low = home_low + value / self.PAN_BAR_RESOLUTION * home_span
+        self._canvas.set_view(new_low, new_low + (high - low))
+
+    def _pick_color(self, index: int) -> None:
+        theme = self._plot_options().theme
+        current = self._driver_colors[index] or (theme.driver_1, theme.driver_2)[index]
+        chosen = QColorDialog.getColor(QColor(current), self, f"Driver {index + 1} colour")
+        if chosen.isValid():
+            self._driver_colors[index] = chosen.name()
+            self._redraw()
+
+    def _save_figure(self) -> None:
+        if self._last_comparison is None:
+            return
+        lap_1, lap_2, _, _ = self._last_comparison
+        suggested = f"{lap_1.driver}_vs_{lap_2.driver}.png".lower()
+        path, _ = QFileDialog.getSaveFileName(self, "Save plot", suggested, "PNG image (*.png)")
+        if path:
+            self._canvas.figure.savefig(path, dpi=150)
+            self.statusBar().showMessage(f"Saved {path}")
 
     def _show_figure(self, figure: Figure) -> None:
         """Swap the embedded canvas for one owning the new figure.
 
         A canvas is married to its figure at construction, so showing a new
-        figure means a new canvas (and a toolbar pointing at it) — replacing
-        the widgets in the layout is simpler and more reliable than trying to
-        transplant axes between figures.
+        figure means a new canvas — replacing the widget in the layout is
+        simpler and more reliable than transplanting axes between figures.
         """
-        layout = self.centralWidget().layout()
-        assert layout is not None  # the central widget always has one; see __init__
-        old_canvas, old_toolbar = self._canvas, self._toolbar
-        self._canvas = FigureCanvasQTAgg(figure)
-        self._toolbar = NavigationToolbar2QT(self._canvas, self)
-        layout.replaceWidget(old_toolbar, self._toolbar)
+        old_canvas = self._canvas
+        self._canvas = ZoomableCanvas(figure)
+        # The pan bar mirrors whichever canvas is current, so every new canvas
+        # is wired to it before it is shown.
+        self._canvas.view_changed.connect(self._sync_pan_bar)
+        layout = old_canvas.parentWidget().layout()
+        assert layout is not None  # the canvas always sits in a layout; see __init__
+        # replaceWidget searches nested layouts by default, so calling it on
+        # the container's layout finds the canvas inside the content row.
         layout.replaceWidget(old_canvas, self._canvas)
-        old_toolbar.deleteLater()
         old_canvas.deleteLater()
         # A synchronous draw, not draw_idle: the slow work (the data) is done,
         # rendering takes a fraction of a second, and the user should never see
