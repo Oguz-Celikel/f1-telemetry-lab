@@ -4,7 +4,7 @@ build-backend = "scikit_build_core.build"
 
 [project]
 name = "f1lab"
-version = "0.1.0"
+version = "0.2.0"
 description = "F1 telemetry analysis lab — fastest-lap comparisons built on FastF1"
 readme = "README.md"
 requires-python = ">=3.12"
